@@ -1,0 +1,19 @@
+{
+    "name": "ian-fuentes/ias-lab-4",
+    "description": "IASLAB4",
+    "autoload": {
+        "psr-4": {
+            "IanFuentes\\IasLab4\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "aianfuentes",
+            "email": "aiangustav23@gmail.com"
+        }
+    ],
+    "require": {
+        "robthree/twofactorauth": "^1.8"
+    },
+    "minimum-stability": "stable"
+}
