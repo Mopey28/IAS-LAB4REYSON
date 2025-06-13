@@ -3,6 +3,7 @@ session_start();
 require_once 'config.php';
 require_once 'logs.php';
 require_once 'rbac.php';
+require_once 'security_policy.php';
 
 // Check if user is admin
 if (!isset($_SESSION['user_id']) || !RBAC::checkPermission('view_security_reports')) {
@@ -46,6 +47,164 @@ $suspicious_ips = mysqli_fetch_all($result, MYSQLI_ASSOC);
 function logActivity($user, $activity, $status, $details = '') {
     $logger = new SecurityLogger();
     $logger->logActivity($user, $activity, $status, $details);
+}
+
+class SecurityReport {
+    private $conn;
+    private $security_policy;
+
+    public function __construct($conn) {
+        $this->conn = $conn;
+        $this->security_policy = new SecurityPolicy();
+    }
+
+    public function generateComplianceReport() {
+        $report = [
+            'timestamp' => date('Y-m-d H:i:s'),
+            'compliance_status' => [],
+            'policy_violations' => [],
+            'recommendations' => []
+        ];
+
+        // Check GDPR Compliance
+        $report['compliance_status']['gdpr'] = $this->checkGDPRCompliance();
+        
+        // Check HIPAA Compliance
+        $report['compliance_status']['hipaa'] = $this->checkHIPAACompliance();
+        
+        // Check Password Policy Compliance
+        $report['compliance_status']['password_policy'] = $this->checkPasswordPolicyCompliance();
+        
+        // Check Access Control Compliance
+        $report['compliance_status']['access_control'] = $this->checkAccessControlCompliance();
+
+        // Generate Recommendations
+        $report['recommendations'] = $this->generateRecommendations($report['compliance_status']);
+
+        return $report;
+    }
+
+    private function checkGDPRCompliance() {
+        $status = [
+            'data_minimization' => $this->checkDataMinimization(),
+            'right_to_forget' => $this->checkRightToForget(),
+            'data_portability' => $this->checkDataPortability()
+        ];
+        return $status;
+    }
+
+    private function checkHIPAACompliance() {
+        $status = [
+            'phi_protection' => $this->checkPHIProtection(),
+            'audit_logging' => $this->checkAuditLogging(),
+            'encryption' => $this->checkEncryption()
+        ];
+        return $status;
+    }
+
+    private function checkPasswordPolicyCompliance() {
+        $violations = [];
+        $query = "SELECT username, last_password_change FROM users";
+        $result = mysqli_query($this->conn, $query);
+
+        while ($row = mysqli_fetch_assoc($result)) {
+            $days_since_change = (time() - strtotime($row['last_password_change'])) / (60 * 60 * 24);
+            if ($days_since_change > SecurityPolicy::PASSWORD_POLICY['max_age_days']) {
+                $violations[] = [
+                    'username' => $row['username'],
+                    'issue' => 'Password expired',
+                    'days_overdue' => round($days_since_change - SecurityPolicy::PASSWORD_POLICY['max_age_days'])
+                ];
+            }
+        }
+        return $violations;
+    }
+
+    private function checkAccessControlCompliance() {
+        $violations = [];
+        $query = "SELECT user_id, role, last_access FROM user_access_logs";
+        $result = mysqli_query($this->conn, $query);
+
+        while ($row = mysqli_fetch_assoc($result)) {
+            if (!isset(SecurityPolicy::RBAC_ROLES[$row['role']])) {
+                $violations[] = [
+                    'user_id' => $row['user_id'],
+                    'issue' => 'Invalid role assignment',
+                    'role' => $row['role']
+                ];
+            }
+        }
+        return $violations;
+    }
+
+    private function generateRecommendations($compliance_status) {
+        $recommendations = [];
+
+        // Password Policy Recommendations
+        if (!empty($compliance_status['password_policy'])) {
+            $recommendations[] = "Implement password expiration notifications";
+            $recommendations[] = "Enforce password complexity requirements";
+        }
+
+        // Access Control Recommendations
+        if (!empty($compliance_status['access_control'])) {
+            $recommendations[] = "Review and update role assignments";
+            $recommendations[] = "Implement regular access reviews";
+        }
+
+        // GDPR Recommendations
+        if (!$compliance_status['gdpr']['data_minimization']) {
+            $recommendations[] = "Implement data minimization practices";
+        }
+
+        // HIPAA Recommendations
+        if (!$compliance_status['hipaa']['encryption']) {
+            $recommendations[] = "Enable encryption for all PHI data";
+        }
+
+        return $recommendations;
+    }
+
+    public function exportReport($format = 'json') {
+        $report = $this->generateComplianceReport();
+        
+        switch ($format) {
+            case 'json':
+                return json_encode($report, JSON_PRETTY_PRINT);
+            case 'html':
+                return $this->generateHTMLReport($report);
+            default:
+                return json_encode($report, JSON_PRETTY_PRINT);
+        }
+    }
+
+    private function generateHTMLReport($report) {
+        $html = "<html><head><title>Security Compliance Report</title></head><body>";
+        $html .= "<h1>Security Compliance Report</h1>";
+        $html .= "<p>Generated on: " . $report['timestamp'] . "</p>";
+        
+        // Compliance Status
+        $html .= "<h2>Compliance Status</h2>";
+        foreach ($report['compliance_status'] as $category => $status) {
+            $html .= "<h3>" . ucfirst($category) . "</h3>";
+            $html .= "<ul>";
+            foreach ($status as $item => $value) {
+                $html .= "<li>" . ucfirst($item) . ": " . ($value ? "Compliant" : "Non-compliant") . "</li>";
+            }
+            $html .= "</ul>";
+        }
+
+        // Recommendations
+        $html .= "<h2>Recommendations</h2>";
+        $html .= "<ul>";
+        foreach ($report['recommendations'] as $recommendation) {
+            $html .= "<li>" . $recommendation . "</li>";
+        }
+        $html .= "</ul>";
+
+        $html .= "</body></html>";
+        return $html;
+    }
 }
 ?>
 

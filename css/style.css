@@ -20,7 +20,9 @@ body {
 }
 
 /* For dashboards and profile pages */
-.dashboard-container {
+.dashboard-container, .profile-container {
+    position: relative;
+    z-index: 1;
     max-width: 1000px;
     width: 100%;
     margin: 40px auto;

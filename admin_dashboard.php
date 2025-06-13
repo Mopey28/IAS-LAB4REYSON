@@ -12,11 +12,11 @@ if (!isset($_SESSION['user_id']) || !isset($_SESSION['mfa_verified']) ||
     exit();
 }
 
-// Get various statistics and data
-$user_stats = getUserStatistics();
+// Get role-based statistics
+$role_stats = getRoleStatistics();
 $security_events = getRecentSecurityEvents(10);
 $system_health = getSystemHealth();
-$user_activity = getUserActivitySummary(7);
+$role_activity = getRoleActivitySummary(7);
 $mfa_stats = getMFAStatistics();
 ?>
 
@@ -28,6 +28,11 @@ $mfa_stats = getMFAStatistics();
     <title>GROW A GARDEN - Admin Dashboard</title>
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="css/admin.css">
+    <style>
+        .role-admin { color: #e74c3c; }
+        .role-user { color: #3498db; }
+        .role-guest { color: #95a5a6; }
+    </style>
 </head>
 <body>
     <div class="farm-bg"></div>
@@ -50,15 +55,15 @@ $mfa_stats = getMFAStatistics();
             <div class="dashboard-header">Quick Stats</div>
             <div class="stats-grid">
                 <div class="stat-card">
-                    <div class="stat-value"><?php echo $user_stats['total_users']; ?></div>
+                    <div class="stat-value"><?php echo $role_stats['total_users']; ?></div>
                     <div class="stat-label">Total Users</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value"><?php echo $user_stats['active_users']; ?></div>
-                    <div class="stat-label">Active Users (30d)</div>
+                    <div class="stat-value"><?php echo $role_stats['active_roles']; ?></div>
+                    <div class="stat-label">Active Roles (30d)</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-value"><?php echo $user_stats['mfa_enabled']; ?></div>
+                    <div class="stat-value"><?php echo $role_stats['mfa_enabled']; ?></div>
                     <div class="stat-label">MFA Enabled</div>
                 </div>
                 <div class="stat-card">
@@ -80,9 +85,17 @@ $mfa_stats = getMFAStatistics();
                     <span class="admin-card-icon">👥</span>
                     <span class="admin-card-title">User Management</span>
                 </a>
-                <a class="admin-card card-yellow admin-card-link" href="logs.php">
-                    <span class="admin-card-icon">📋</span>
-                    <span class="admin-card-title">View Logs</span>
+                <a class="admin-card card-green admin-card-link" href="security_policy_admin.php">
+                    <div class="admin-card-icon">📜</div>
+                    <span class="admin-card-title">Security Policy</span>
+                </a>
+                <a class="admin-card card-green admin-card-link" href="system_monitoring.php">
+                    <div class="admin-card-icon">📊</div>
+                    <span class="admin-card-title">System Monitoring</span>
+                </a>
+                <a class="admin-card card-red admin-card-link" href="settings_admin.php">
+                    <span class="admin-card-icon">⚙️</span>
+                    <span class="admin-card-title">Settings</span>
                 </a>
                 <a class="admin-card card-red admin-card-link" href="setup.php">
                     <span class="admin-card-icon">🔑</span>
@@ -120,7 +133,7 @@ $mfa_stats = getMFAStatistics();
                     <thead>
                         <tr>
                             <th>Time</th>
-                            <th>User</th>
+                            <th>Role</th>
                             <th>Action</th>
                             <th>Status</th>
                         </tr>
@@ -129,7 +142,9 @@ $mfa_stats = getMFAStatistics();
                         <?php foreach ($security_events as $event): ?>
                         <tr>
                             <td><?php echo htmlspecialchars($event['timestamp']); ?></td>
-                            <td><?php echo isset($event['username']) ? htmlspecialchars($event['username']) : 'N/A'; ?></td>
+                            <td class="role-<?php echo strtolower($event['role'] ?? 'guest'); ?>">
+                                <?php echo htmlspecialchars($event['role'] ?? 'Guest'); ?>
+                            </td>
                             <td><?php echo htmlspecialchars($event['action']); ?></td>
                             <td class="<?php echo $event['status'] === 'success' ? 'status-ok' : 'status-error'; ?>">
                                 <?php echo htmlspecialchars($event['status']); ?>
@@ -141,9 +156,9 @@ $mfa_stats = getMFAStatistics();
             </div>
         </div>
 
-        <!-- User Activity Chart -->
+        <!-- Role Activity Chart -->
         <div class="dashboard-section">
-            <div class="dashboard-header">User Activity (Last 7 Days)</div>
+            <div class="dashboard-header">Role Activity (Last 7 Days)</div>
             <div class="chart-container">
                 <canvas id="activityChart"></canvas>
             </div>
@@ -160,25 +175,28 @@ $mfa_stats = getMFAStatistics();
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         // Prepare data for the activity chart
-        const activityData = <?php echo json_encode($user_activity); ?>;
+        const activityData = <?php echo json_encode($role_activity); ?>;
+        
+        // Group data by role
+        const roles = [...new Set(activityData.map(item => item.role))];
+        const datasets = roles.map(role => {
+            const roleData = activityData.filter(item => item.role === role);
+            return {
+                label: role,
+                data: roleData.map(item => item.active_users),
+                borderColor: role === 'admin' ? '#e74c3c' : 
+                           role === 'user' ? '#3498db' : '#95a5a6',
+                tension: 0.1
+            };
+        });
         
         // Create the activity chart
         const ctx = document.getElementById('activityChart').getContext('2d');
         new Chart(ctx, {
             type: 'line',
             data: {
-                labels: activityData.map(item => item.date),
-                datasets: [{
-                    label: 'Active Users',
-                    data: activityData.map(item => item.active_users),
-                    borderColor: 'rgb(75, 192, 192)',
-                    tension: 0.1
-                }, {
-                    label: 'Total Actions',
-                    data: activityData.map(item => item.total_actions),
-                    borderColor: 'rgb(255, 99, 132)',
-                    tension: 0.1
-                }]
+                labels: [...new Set(activityData.map(item => item.date))],
+                datasets: datasets
             },
             options: {
                 responsive: true,

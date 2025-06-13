@@ -5,14 +5,15 @@ class SecurityLogger {
     private $conn;
     private $logFile;
     private $alertThresholds = [
-        'failed_logins' => 5,
+        'failed_logins' => 3,
         'mfa_failures' => 3,
         'file_access_denied' => 10,
         'suspicious_ips' => 3
     ];
 
     public function __construct($logFile = 'security_log.txt') {
-        $this->conn = $GLOBALS['conn'];
+        global $conn;
+        $this->conn = $conn;
         $this->logFile = $logFile;
         $this->initializeLogTables();
     }
@@ -26,6 +27,7 @@ class SecurityLogger {
             $sql = "CREATE TABLE access_logs (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 user_id VARCHAR(50) NOT NULL,
+                role VARCHAR(20) NOT NULL DEFAULT 'guest',
                 action VARCHAR(50) NOT NULL,
                 status VARCHAR(20) NOT NULL,
                 ip_address VARCHAR(45) NOT NULL,
@@ -35,6 +37,19 @@ class SecurityLogger {
             )";
             mysqli_query($this->conn, $sql);
         } else {
+            // Check if role column exists
+            $columnExists = mysqli_query($this->conn, "SHOW COLUMNS FROM access_logs LIKE 'role'");
+            if (mysqli_num_rows($columnExists) == 0) {
+                // Add role column with default value
+                mysqli_query($this->conn, "ALTER TABLE access_logs ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'guest' AFTER user_id");
+                
+                // Update existing records to have a role
+                mysqli_query($this->conn, "UPDATE access_logs al 
+                    LEFT JOIN users u ON al.user_id = u.username 
+                    SET al.role = COALESCE(u.role, 'guest') 
+                    WHERE al.role = 'guest'");
+            }
+            
             // Check if user_agent column exists
             $columnExists = mysqli_query($this->conn, "SHOW COLUMNS FROM access_logs LIKE 'user_agent'");
             if (mysqli_num_rows($columnExists) == 0) {
@@ -64,37 +79,33 @@ class SecurityLogger {
         mysqli_query($this->conn, $sql);
     }
 
-    public function logAccess($user, $action, $status, $details = '') {
-    // Log to database
-        $sql = "INSERT INTO access_logs (user_id, action, status, ip_address, user_agent, timestamp, details) 
-                VALUES (?, ?, ?, ?, ?, NOW(), ?)";
+    public function logAccess($username, $action, $status, $details = null, $role = null) {
+        // If role is not provided, try to get it from the users table
+        if ($role === null) {
+            $sql = "SELECT role FROM users WHERE username = ?";
+            $stmt = mysqli_prepare($this->conn, $sql);
+            mysqli_stmt_bind_param($stmt, "s", $username);
+            mysqli_stmt_execute($stmt);
+            $result = mysqli_stmt_get_result($stmt);
+            $user = mysqli_fetch_assoc($result);
+            $role = $user ? $user['role'] : 'unknown';
+        }
+
+        $sql = "INSERT INTO access_logs (user_id, action, status, details, role, ip_address, timestamp) 
+                VALUES (?, ?, ?, ?, ?, ?, NOW())";
         $stmt = mysqli_prepare($this->conn, $sql);
     $ip = $_SERVER['REMOTE_ADDR'];
-        $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
-        mysqli_stmt_bind_param($stmt, "ssssss", $user, $action, $status, $ip, $userAgent, $details);
+        mysqli_stmt_bind_param($stmt, "ssssss", $username, $action, $status, $details, $role, $ip);
     mysqli_stmt_execute($stmt);
-    
-    // Log to file
-        $logEntry = sprintf(
-            "[%s] User: %s, Action: %s, Status: %s, IP: %s, User-Agent: %s, Details: %s\n",
-            date('Y-m-d H:i:s'),
-            $user,
-            $action,
-            $status,
-            $ip,
-            $userAgent,
-            $details
-        );
-        file_put_contents($this->logFile, $logEntry, FILE_APPEND);
 
         // Check for security threats
-        $this->checkSecurityThreats($user, $action, $status, $ip);
+        $this->checkSecurityThreats($username, $action, $status, $ip);
     }
 
     private function checkSecurityThreats($user, $action, $status, $ip) {
-        // Check for multiple failed logins
+        // Check for multiple failed logins by role
         if ($action === 'LOGIN' && $status === 'failed') {
-            $this->checkFailedLogins($ip);
+            $this->checkFailedLoginsByRole($ip);
         }
 
         // Check for MFA failures
@@ -111,27 +122,31 @@ class SecurityLogger {
         }
     }
 
-    private function checkFailedLogins($ip) {
-        $sql = "SELECT COUNT(*) as failed_count 
+    private function checkFailedLoginsByRole($ip) {
+        $sql = "SELECT role, COUNT(*) as failed_count 
             FROM access_logs 
                 WHERE ip_address = ? 
                 AND action = 'LOGIN' 
                 AND status = 'failed' 
-            AND timestamp > DATE_SUB(NOW(), INTERVAL 15 MINUTE)";
+                AND timestamp > DATE_SUB(NOW(), INTERVAL 15 MINUTE)
+                GROUP BY role";
         $stmt = mysqli_prepare($this->conn, $sql);
         mysqli_stmt_bind_param($stmt, "s", $ip);
         mysqli_stmt_execute($stmt);
         $result = mysqli_stmt_get_result($stmt);
-    $row = mysqli_fetch_assoc($result);
     
+        while ($row = mysqli_fetch_assoc($result)) {
         if ($row['failed_count'] >= $this->alertThresholds['failed_logins']) {
             $this->createSecurityAlert(
                 'multiple_failed_logins',
                 'high',
-                "Multiple failed login attempts from IP: $ip",
-                $ip
+                    "Multiple failed login attempts for role: {$row['role']} from IP: $ip",
+                    $ip,
+                    null,
+                    $row['role']
             );
             $this->blockIP($ip);
+            }
     }
     }
 
@@ -252,6 +267,20 @@ class SecurityLogger {
     }
 
     // Add other report generation methods as needed
+
+    public function getRecentSecurityEvents($limit = 20) {
+        $sql = "SELECT * FROM access_logs ORDER BY timestamp DESC LIMIT ?";
+        $stmt = mysqli_prepare($this->conn, $sql);
+        mysqli_stmt_bind_param($stmt, "i", $limit);
+        mysqli_stmt_execute($stmt);
+        $result = mysqli_stmt_get_result($stmt);
+        
+        $events = [];
+        while ($row = mysqli_fetch_assoc($result)) {
+            $events[] = $row;
+        }
+        return $events;
+    }
 }
 
 // Usage example:

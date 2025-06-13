@@ -117,6 +117,9 @@
 .card-lightblue { background: #2980b9; }
 .card-yellow { background: #f1c40f; }
 .card-red { background: #e74c3c; }
+.card-green { background: #27ae60; }
+.card-orange { background: #fd7e14; }
+.card-purple { background: #8e44ad; }
 
 .admin-card-icon {
     font-size: 2rem;
@@ -126,6 +129,7 @@
 .admin-card-title {
     font-size: 1.1rem;
     font-weight: bold;
+    color: #222 !important;
 }
 
 /* Table Styles */

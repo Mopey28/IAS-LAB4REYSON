@@ -122,4 +122,73 @@ function getMFAStatistics() {
     
     return $stats;
 }
+
+/**
+ * Get role-based statistics
+ * @return array Role-based statistics
+ */
+function getRoleStatistics() {
+    global $conn;
+    $stats = [];
+    
+    // Get total users
+    $sql = "SELECT COUNT(*) as total FROM users";
+    $result = mysqli_query($conn, $sql);
+    $stats['total_users'] = mysqli_fetch_assoc($result)['total'];
+    
+    // Check if role column exists in access_logs
+    $columnExists = mysqli_query($conn, "SHOW COLUMNS FROM access_logs LIKE 'role'");
+    if (mysqli_num_rows($columnExists) == 0) {
+        // Add role column if it doesn't exist
+        mysqli_query($conn, "ALTER TABLE access_logs ADD COLUMN role VARCHAR(20) NOT NULL DEFAULT 'guest' AFTER user_id");
+        
+        // Update existing records with roles from users table
+        mysqli_query($conn, "UPDATE access_logs al 
+            LEFT JOIN users u ON al.user_id = u.username 
+            SET al.role = COALESCE(u.role, 'guest') 
+            WHERE al.role = 'guest'");
+    }
+    
+    // Get active roles (roles with activity in last 30 days)
+    $sql = "SELECT COUNT(DISTINCT role) as active_roles 
+            FROM access_logs 
+            WHERE timestamp >= DATE_SUB(NOW(), INTERVAL 30 DAY)";
+    $result = mysqli_query($conn, $sql);
+    $stats['active_roles'] = mysqli_fetch_assoc($result)['active_roles'];
+    
+    // Get MFA enabled users
+    $sql = "SELECT COUNT(*) as mfa_enabled 
+            FROM users 
+            WHERE mfa_secret IS NOT NULL AND mfa_secret != ''";
+    $result = mysqli_query($conn, $sql);
+    $stats['mfa_enabled'] = mysqli_fetch_assoc($result)['mfa_enabled'];
+    
+    return $stats;
+}
+
+// Function to get role-based activity summary
+function getRoleActivitySummary($days = 7) {
+    global $conn;
+    $activity = [];
+    $sql = "SELECT 
+                u.role,
+                DATE(l.created_at) as date,
+                COUNT(DISTINCT l.user_id) as active_users,
+                COUNT(*) as total_actions
+            FROM security_logs l
+            LEFT JOIN users u ON l.user_id = u.id
+            WHERE l.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)
+            GROUP BY u.role, DATE(l.created_at)
+            ORDER BY date DESC, u.role";
+    
+    $stmt = mysqli_prepare($conn, $sql);
+    mysqli_stmt_bind_param($stmt, "i", $days);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    
+    while ($row = mysqli_fetch_assoc($result)) {
+        $activity[] = $row;
+    }
+    return $activity;
+}
 ?> 

@@ -9,6 +9,39 @@ if (!isset($_SESSION['user_id']) || !isset($_SESSION['mfa_verified']) ||
     header('Location: index.php');
     exit();
 }
+
+// Helper to get policy
+function get_policy($type, $key, $default) {
+    global $conn;
+    $sql = "SELECT policy_value FROM security_policies WHERE policy_type=? AND policy_key=?";
+    $stmt = mysqli_prepare($conn, $sql);
+    mysqli_stmt_bind_param($stmt, 'ss', $type, $key);
+    mysqli_stmt_execute($stmt);
+    $result = mysqli_stmt_get_result($stmt);
+    $row = mysqli_fetch_assoc($result);
+    return $row ? $row['policy_value'] : $default;
+}
+$defaults = [
+    'min_length' => 12,
+    'require_uppercase' => 1,
+    'require_lowercase' => 1,
+    'require_numbers' => 1,
+    'require_special_chars' => 1
+];
+$min_length = get_policy('password', 'min_length', $defaults['min_length']);
+$require_uppercase = get_policy('password', 'require_uppercase', $defaults['require_uppercase']);
+$require_lowercase = get_policy('password', 'require_lowercase', $defaults['require_lowercase']);
+$require_numbers = get_policy('password', 'require_numbers', $defaults['require_numbers']);
+$require_special_chars = get_policy('password', 'require_special_chars', $defaults['require_special_chars']);
+
+// Get user info
+$user_id = $_SESSION['user_id'];
+$sql = "SELECT username, role, status, email FROM users WHERE id = ?";
+$stmt = mysqli_prepare($conn, $sql);
+mysqli_stmt_bind_param($stmt, "i", $user_id);
+mysqli_stmt_execute($stmt);
+$result = mysqli_stmt_get_result($stmt);
+$user = mysqli_fetch_assoc($result);
 ?>
 
 <!DOCTYPE html>
@@ -158,9 +191,19 @@ if (!isset($_SESSION['user_id']) || !isset($_SESSION['mfa_verified']) ||
         </div>
         <div class="user-section">
             <div class="user-section-title">Account Information</div>
-            <div class="user-section-info"><b>Username:</b> <?php echo htmlspecialchars($_SESSION['username']); ?></div>
-            <div class="user-section-info"><b>Role:</b> <?php echo htmlspecialchars($_SESSION['role']); ?></div>
+            <div class="user-section-info"><b>Username:</b> <?php echo htmlspecialchars($user['username']); ?></div>
+            <div class="user-section-info"><b>Email:</b> <?php echo htmlspecialchars($user['email']); ?></div>
+            <div class="user-section-info"><b>Role:</b> <?php echo htmlspecialchars($user['role']); ?></div>
+            <div class="user-section-info"><b>Status:</b> <?php echo htmlspecialchars($user['status']); ?></div>
             <div class="user-section-info"><b>MFA Status:</b> Active</div>
+        </div>
+        <div class="user-section">
+            <div class="user-section-title">Security Policy (Password Requirements)</div>
+            <div class="user-section-info"><b>Min Length:</b> <?php echo htmlspecialchars($min_length); ?></div>
+            <div class="user-section-info"><b>Require Uppercase:</b> <?php echo $require_uppercase ? 'Yes' : 'No'; ?></div>
+            <div class="user-section-info"><b>Require Lowercase:</b> <?php echo $require_lowercase ? 'Yes' : 'No'; ?></div>
+            <div class="user-section-info"><b>Require Numbers:</b> <?php echo $require_numbers ? 'Yes' : 'No'; ?></div>
+            <div class="user-section-info"><b>Require Special Characters:</b> <?php echo $require_special_chars ? 'Yes' : 'No'; ?></div>
         </div>
         <div class="user-section">
             <div class="user-section-title">Security Status</div>

@@ -25,9 +25,13 @@ if (isset($_SESSION['user_id'])) {
             <div style="color: red; margin-bottom: 10px;">
                 <?php
                 if ($_GET['error'] === 'invalid_credentials') {
-                    echo 'Invalid username or password';
+                    $attempts = isset($_GET['attempts']) ? (int)$_GET['attempts'] : 2;
+                    echo 'Invalid username or password. You have ' . $attempts . ' more ' . 
+                         ($attempts === 1 ? 'attempt' : 'attempts') . ' before your account is temporarily blocked.';
                 } elseif ($_GET['error'] === 'invalid_mfa') {
                     echo 'Invalid MFA code';
+                } elseif ($_GET['error'] === 'account_blocked') {
+                    echo 'This account has been temporarily blocked due to multiple failed login attempts. Please try again in 15 minutes.';
                 }
                 ?>
             </div>

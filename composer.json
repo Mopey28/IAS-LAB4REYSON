@@ -1,15 +1,15 @@
 {
-    "name": "ian-fuentes/ias-lab-4",
+    "name": "Mopey/ias-lab-4",
     "description": "IASLAB4",
     "autoload": {
         "psr-4": {
-            "IanFuentes\\IasLab4\\": "src/"
+            "Mopey\\IasLab4\\": "src/"
         }
     },
     "authors": [
         {
-            "name": "aianfuentes",
-            "email": "aiangustav23@gmail.com"
+            "name": "Mopey",
+            "email": "Reysonarante2002@gmail.com"
         }
     ],
     "require": {
